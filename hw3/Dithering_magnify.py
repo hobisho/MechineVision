@@ -71,6 +71,7 @@ plt.tight_layout()
 plt.savefig("./HW3/output/dithering_results.png")  # 儲存輸出結果
 plt.show()
 
+cv2.imwrite('./HW3/output/img.png', img)
 cv2.imwrite('./HW3/output/monochrome_result.png', monochrome)
 cv2.imwrite('./HW3/output/dithered_result.png', dithered)
 cv2.imwrite('./HW3/output/dithered_magnify_result.png', dithered_magnify)

@@ -12,21 +12,22 @@ def calculate_mse_psnr(processed):
     else:
         PIXEL_MAX = 255.0
         psnr = 20 * np.log10(PIXEL_MAX / np.sqrt(mse))
+
     return mse, psnr
 
 # 1. 讀入圖像
-img = cv2.imread('./HW3/b.jpg', cv2.IMREAD_GRAYSCALE)
+img = cv2.imread('m.png', cv2.IMREAD_GRAYSCALE)
 
-size_list = [4, 8, 16, 32]  # 不同的抖動矩陣大小
+size_list = [2, 4, 8, 16]  # 不同的抖動矩陣大小
 h, w = img.shape
-h_new = h - h % 32
-w_new = w - w % 32
+h_new = h - h % size_list[3]
+w_new = w - w % size_list[3]
 img_resized = img[:h_new, :w_new]
 
 img_magnify = cv2.resize(img, (img.shape[1]*4, img.shape[0]*4), interpolation=cv2.INTER_NEAREST)  # 最近鄰放大
 monochrome = (img_resized > 128).astype(np.uint8) * 255
 image_list = {
-    'Original': img,
+    'Original': img_resized,
     'Monochrome Binarization': monochrome,
 }
 mse, psnr = calculate_mse_psnr(monochrome)
@@ -37,6 +38,10 @@ def MakeDitheringarray(magnify):
     Dithering_order = np.array([[0, 2],
                                 [3, 1]], dtype=np.uint8)
     array = 64 * Dithering_order
+
+    if magnify <= 1:
+        return array
+    
     for k in range((magnify - 1)):
         size = 2 * array.shape[0]
         Dithering_22 = array
@@ -48,6 +53,7 @@ def MakeDitheringarray(magnify):
             for j in range(size):
                 Dithering_array[i, j] = Dithering_22[i, j] + weight * Dithering_order[2 * i // size][2 * j // size]
         array = Dithering_array
+    
     return Dithering_array
 
 # 3. 對不同 size 處理
