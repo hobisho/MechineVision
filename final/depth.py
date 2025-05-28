@@ -44,9 +44,13 @@ def depth(imgLL, imgLR, imgRL, imgRR):
     disparity_right[disparity_right < -Disparity] = 0  # 過濾不合理值
     disp_normalized_right = -cv2.normalize(disparity_right, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
     disp_8u_right = np.uint8(disp_normalized_right)
-
-    cv2.imwrite(f"./final/output/disparity_left.jpg", disp_8u_left)
-    cv2.imwrite(f"./final/output/disparity_right.jpg", disp_8u_right)
+    
+    d = 0.3664
+    w,h=disp_8u_left.shape
+    disp_resize_left = cv2.resize(disp_8u_left, (int(d*h), int(d*w)))
+    disp_resize_right = cv2.resize(disp_8u_right, (int(d*h), int(d*w)))
+    cv2.imwrite(f"./final/output/disparity_left.jpg", disp_resize_left)
+    cv2.imwrite(f"./final/output/disparity_right.jpg", disp_resize_right)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
