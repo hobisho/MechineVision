@@ -28,7 +28,7 @@ def shift_image_horizontal(img, shift_amount):
     h, w = img.shape[:2]
 
     if img.all() <= 2:  # 深度圖
-        shifted = np.ones_like(img)*-1
+        shifted = np.ones_like(img)*2
     else:  # 彩色圖
         shifted = np.zeros_like(img)
 
@@ -66,29 +66,7 @@ def forward_warp_to_stack(depth_map, color_img, baseline, focal_length, shift):
 
     return depth_stack, color_stack
 
-# ---------- 計算重心 ----------
-def compute_centroid_from_stack(depth_stack, threshold=0.5):
-    h, w = len(depth_stack), len(depth_stack[0])
-    xs, ys ,zs= [], [], []
-
-    for y in range(h):
-        for x in range(w):
-            for d in depth_stack[y][x]:
-                if  0.3 < d < threshold:
-                    xs.append(x)
-                    ys.append(y)
-                    zs.append(d)
-
-    if not xs:
-        print("⚠️ 找不到深度 > {:.2f} 的有效點".format(threshold))
-        return None
-
-    # 計算重心
-    print(f"✅ 重心位置 (X, Y, Z)：{np.mean(xs).astype(int),np.mean(ys).astype(int),np.mean(zs)}")
-
-    return np.mean(xs).astype(int),np.mean(zs)
-
-# ---------- 深度堆疊對齊 ----------
+# ---------- 深度平移深度圖 ----------
 def shift_points_in_stack(depth_stack, color_stack, midcenter_x, midcenter_z, threshold=0.3, constant=1):
     h, w = len(depth_stack), len(depth_stack[0])
     new_depth_stack = [[[] for _ in range(w)] for _ in range(h)]
@@ -118,6 +96,13 @@ def merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, ri
         for x in range(w):
             left_depths = left_shifted_depth[y][x]
             right_depths = right_shifted_depth[y][x]
+            
+            # 處理shift空洞情況
+            if left_depths==2:
+                left_depths = None
+            if right_depths==2:
+                right_depths = None
+
             left_colors = left_shifted_color[y][x]
             right_colors = right_shifted_color[y][x]
 
@@ -172,6 +157,43 @@ def merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, ri
 
     return merged_depth_stack, merged_color_stack
 
+# ---------- 深度圖補洞 ----------
+def inpaint_stack_median(depth_stack, color_stack, kernel_size=3, max_iter=10):
+    for i in range(max_iter):
+        filled = 0
+        h, w = len(depth_stack), len(depth_stack[0])
+        pad = kernel_size // 2
+        new_depth_stack = [[list(p) for p in row] for row in depth_stack]
+        new_color_stack = [[list(p) for p in row] for row in color_stack]
+
+        for y in range(pad, h - pad):
+            for x in range(pad, w - pad):
+                if not depth_stack[y][x]:
+                    neighbor_depths = []
+                    neighbor_colors = []
+
+                    for dy in range(-pad, pad + 1):
+                        for dx in range(-pad, pad + 1):
+                            ny, nx = y + dy, x + dx
+                            if depth_stack[ny][nx]:
+                                neighbor_depths.extend(depth_stack[ny][nx])
+                                neighbor_colors.extend(color_stack[ny][nx])
+
+                    if neighbor_depths:
+                        median_depth = float(np.median(neighbor_depths))
+                        median_color = np.median(np.array(neighbor_colors), axis=0).astype(np.uint8).tolist()
+                        new_depth_stack[y][x].append(median_depth)
+                        new_color_stack[y][x].append(median_color)
+                        filled += 1
+
+        depth_stack = new_depth_stack
+        color_stack = new_color_stack
+        print(f"[第 {i+1} 輪] 補了 {filled} 個點")
+        if filled == 0:
+            break
+
+    return depth_stack, color_stack
+
 # ---------- 顯示圖像視覺結果 ----------
 def show_virtual_views(left_stack_color, right_stack_color, merged_stack_color, left_stack_depth=None, right_stack_depth=None, merged_stack_depth=None):
     def frontmost_color(stack_color, stack_depth):
@@ -218,32 +240,35 @@ if __name__ == "__main__":
     left_depth, left_color, _ = load_depth_and_color("./final/output/disparity_left.jpg", f"{path}_left_left.jpg")
     right_depth, right_color, _ = load_depth_and_color("./final/output/disparity_right.jpg", f"{path}_right_right.jpg")
     print(left_depth.shape)
-    
+
+    # 計算深度圖shift
     (max_group_mean, max_group_max, min_group_mean,avg_dx)= analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
     print(min_group_mean)
     shift = -int(min_group_mean/2)
+    midcenter_x = int(max_group_max-min_group_mean)/2.2 #int(abs(center_left_x - center_right_x) / 2)
+    midcenter_z = 0
+    print(midcenter_x,midcenter_z)
+
+    # 平移圖像
     left_color_shifted = shift_image_horizontal(left_color, shift)
     right_color_shifted = shift_image_horizontal(right_color, -shift)
     left_depth_shifted = shift_image_horizontal(left_depth, shift)
     right_depth_shifted = shift_image_horizontal(right_depth, -shift)
     
-    # warp 成 stack
+    # warp 成深度圖
     left_stack_depth, left_stack_color = forward_warp_to_stack(left_depth_shifted, left_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
     right_stack_depth, right_stack_color = forward_warp_to_stack(right_depth_shifted, right_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
 
-    # center_left_x,center_left_z = compute_centroid_from_stack(left_stack_depth, threshold=0.4)
-    # center_right_x,center_right_z = compute_centroid_from_stack(right_stack_depth, threshold=0.4)
-    # print(int(abs(center_left_x - center_right_x) / 2))
-    midcenter_x = int(max_group_max-min_group_mean)/2.2 #int(abs(center_left_x - center_right_x) / 2)
-    midcenter_z = 0
-    print(midcenter_x,midcenter_z)
-
+    # 平移深度圖
     left_shifted_depth, left_shifted_color = shift_points_in_stack(left_stack_depth, left_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=-1)
     right_shifted_depth, right_shifted_color = shift_points_in_stack(right_stack_depth, right_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=1)
 
-    # 合併 stack
+    # 合併深度圖
     h, w = left_depth.shape
     merged_depth_stack, merged_color_stack = merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color, h, w)
+
+    # 補洞
+    merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack, merged_color_stack)
 
     # 顯示虛擬視角圖像
     print("⚠️ 顯示虛擬視角圖像")
