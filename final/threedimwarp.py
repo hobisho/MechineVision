@@ -37,6 +37,7 @@ def forward_warp_to_stack(depth_map, color_img, baseline, focal_length, shift):
 
     return depth_stack, color_stack
 
+# ---------- 載入深度和顏色圖像 ----------
 def load_depth_and_color(depth_path, color_path):
     depth_raw = imageio.imread(depth_path).astype(np.float32)
     depth_map = (255.0 - depth_raw) / 255.0 * DEPTH_SCALE
@@ -46,52 +47,6 @@ def load_depth_and_color(depth_path, color_path):
     elif color_image.shape[2] == 4:
         color_image = color_image[:, :, :3]
     return depth_map, color_image, depth_raw
-
-# ---------- 儲存點雲為 PLY ----------
-def save_point_cloud_as_ply(filename, points, colors):
-    with open(filename, 'w') as f:
-        f.write("ply\nformat ascii 1.0\n")
-        f.write(f"element vertex {len(points)}\n")
-        f.write("property float x\nproperty float y\nproperty float z\n")
-        f.write("property uchar red\nproperty uchar green\nproperty uchar blue\n")
-        f.write("end_header\n")
-        for (x, y, z), (r, g, b) in zip(points, colors):
-            f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r*255)} {int(g*255)} {int(b*255)}\n")
-
-
-# ---------- 顯示點雲 ----------
-def show_point_cloud_from_stack(depth_stack, color_stack, focal_length=FOCAL_LENGTH, downsample=4):
-    h, w = len(depth_stack), len(depth_stack[0])
-    points = []
-    colors = []
-
-    for y in range(0, h, downsample):
-        for x in range(0, w, downsample):
-            for d, c in zip(depth_stack[y][x], color_stack[y][x]):
-                if  d > 1e-3: #isinstance(d, (float, int)) and
-                    z = d
-                    x3d = (x - w / 2) * z / focal_length
-                    y3d = (y - h / 2) * z / focal_length
-                    points.append([x3d, -y3d, z])
-                    colors.append(np.array(c) / 255.0)
-
-    if not points:
-        print("⚠️ 沒有有效的點雲資料")
-        return
-
-    points = np.array(points)
-    colors = np.array(colors)
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=colors, s=0.5)
-    # ax.view_init(elev=90, azim=-90)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z (Depth)')
-    ax.set_title("3D Point Cloud from Warp Stack")
-    plt.tight_layout()
-    plt.show()
-    save_point_cloud_as_ply("point_cloud.ply", points, colors)
 
 # ---------- 顯示圖像視覺結果 ----------
 def show_virtual_views(left_stack_color, right_stack_color, merged_stack_color, left_stack_depth=None, right_stack_depth=None, merged_stack_depth=None):
@@ -129,7 +84,6 @@ def show_virtual_views(left_stack_color, right_stack_color, merged_stack_color, 
 
     plt.tight_layout()
     plt.show()
-
 
 # ---------- 計算重心 ----------
 def compute_centroid_from_stack(depth_stack, threshold=0.5):
@@ -174,7 +128,7 @@ def shift_points_in_stack(depth_stack, color_stack, midcenter_x, midcenter_z, th
     
     return new_depth_stack, new_color_stack
 
-
+# ---------- 合併左右堆疊 ----------
 def merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color, h, w):
     merged_depth_stack = [[[] for _ in range(w)] for _ in range(h)]
     merged_color_stack = [[[] for _ in range(w)] for _ in range(h)]
