@@ -1,42 +1,39 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.interpolate import griddata
 
-# 讀取圖片
-img = cv2.imread('final/image/bbox_left_left.jpg')  # 改成你的圖片路徑
-img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 轉成RGB方便matplotlib顯示
+path = "./final/image/2image/tv"
+imgL = cv2.imread(f"{path}_left.jpg", cv2.IMREAD_GRAYSCALE)
+imgR = cv2.imread(f"{path}_right.jpg", cv2.IMREAD_GRAYSCALE)
 
-# 灰階轉換
-gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+if imgL is None or imgR is None:
+    print("影像讀取失敗，請確認檔名與路徑")
+    exit()
 
-# 高斯模糊
-blur = cv2.GaussianBlur(gray, (5,5), 0)
+# 建立StereoBM物件
+numDisparities = 16*20  # 必須是16的倍數，設定視差範圍
+blockSize = 15         # 區塊大小，調整影響結果平滑度與細節
 
-# 邊緣檢測 (Canny)
-edges = cv2.Canny(blur, 50, 150)
+stereo = cv2.StereoBM_create(numDisparities=numDisparities, blockSize=blockSize)
 
-# 基於顏色範圍找物件 (假設偵測藍色)
-hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-lower_blue = np.array([100, 150, 50])
-upper_blue = np.array([140, 255, 255])
-mask = cv2.inRange(hsv, lower_blue, upper_blue)
+# 計算視差圖（16位元固定點，需除以16）
+disparity = stereo.compute(imgL, imgR).astype(np.float32) / 16.0
 
-# 找輪廓
-contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# 將視差值限制範圍（避免負值影響）
+disparity[disparity < 0] = 0
 
-# 在原圖畫出輪廓
-img_contours = img.copy()
-for cnt in contours:
-    if cv2.contourArea(cnt) > 500:
-        cv2.drawContours(img_contours, [cnt], -1, (0,255,0), 2)
+# 正規化視差到0~255
+disparity_norm = cv2.normalize(disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+disparity_norm = np.uint8(disparity_norm)
 
-# 顯示結果
-plt.figure(figsize=(12,8))
-plt.subplot(231), plt.imshow(img_rgb), plt.title('原始圖'), plt.axis('off')
-plt.subplot(232), plt.imshow(gray, cmap='gray'), plt.title('灰階'), plt.axis('off')
-plt.subplot(233), plt.imshow(blur, cmap='gray'), plt.title('模糊'), plt.axis('off')
-plt.subplot(234), plt.imshow(edges, cmap='gray'), plt.title('邊緣檢測'), plt.axis('off')
-plt.subplot(235), plt.imshow(mask, cmap='gray'), plt.title('顏色遮罩'), plt.axis('off')
-plt.subplot(236), plt.imshow(cv2.cvtColor(img_contours, cv2.COLOR_BGR2RGB)), plt.title('輪廓標註'), plt.axis('off')
-plt.tight_layout()
+# 顯示視差圖
+cv2.imshow('Disparity Map (0~255)', disparity_norm)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# 或用matplotlib顯示
+plt.imshow(disparity_norm, cmap='gray')
+plt.title('Disparity Map (0~255)')
+plt.axis('off')
 plt.show()

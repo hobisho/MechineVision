@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import median_filter
 import imageio.v2 as imageio
 from mpl_toolkits.mplot3d import Axes3D
-from background import ImgShift
+from def_orb import analyze_displacement
 import cv2
 
 # ---------- 參數設定 ----------
@@ -159,8 +159,8 @@ def shift_points_in_stack(depth_stack, color_stack, midcenter_x, midcenter_z, th
     new_depth_stack = [[[] for _ in range(w)] for _ in range(h)]
     new_color_stack = [[[] for _ in range(w)] for _ in range(h)]
 
-    for y in range(h):
-        for x in range(w):
+    for y in range(0 if constant > 0 else h - 1, h if constant > 0 else -1, constant):
+        for x in range(0 if constant > 0 else w - 1, w if constant > 0 else -1, constant):
             for d, c in zip(depth_stack[y][x], color_stack[y][x]):
                 if d < threshold:
                     shift_x = midcenter_x *(1-d)/(1-midcenter_z)
@@ -264,38 +264,35 @@ if __name__ == "__main__":
     right_depth, right_color, _ = load_depth_and_color("./final/output/disparity_right.jpg", f"{path}_right_right.jpg")
     print(left_depth.shape)
     
-    shift ,error= ImgShift(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
-    print(shift)
-    shift = int(102/2)
+    cluster_mean ,error= analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
+    print(cluster_mean)
+    shift = -int(cluster_mean/2)
     left_color_shifted = shift_image_horizontal(left_color, shift)
     right_color_shifted = shift_image_horizontal(right_color, -shift)
     left_depth_shifted = shift_image_horizontal(left_depth, shift)
     right_depth_shifted = shift_image_horizontal(right_depth, -shift)
-    cv2.imshow("f",right_color_shifted)
-    cv2.imshow("hi",left_color_shifted)
-    cv2.waitKey(0)
-
+    
     # warp 成 stack
-    # left_stack_depth, left_stack_color = forward_warp_to_stack(left_depth_shifted, left_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
-    # right_stack_depth, right_stack_color = forward_warp_to_stack(right_depth_shifted, right_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
+    left_stack_depth, left_stack_color = forward_warp_to_stack(left_depth_shifted, left_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
+    right_stack_depth, right_stack_color = forward_warp_to_stack(right_depth_shifted, right_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
 
-    # center_left_x,center_left_z = compute_centroid_from_stack(left_stack_depth, threshold=0.4)
-    # center_right_x,center_right_z = compute_centroid_from_stack(right_stack_depth, threshold=0.4)
-    # midcenter_x = int(abs(center_left_x - center_right_x) / 2)
-    # midcenter_z = (center_left_z + center_right_z) / 2
-    # print(midcenter_x)
+    center_left_x,center_left_z = compute_centroid_from_stack(left_stack_depth, threshold=0.4)
+    center_right_x,center_right_z = compute_centroid_from_stack(right_stack_depth, threshold=0.4)
+    print(int(abs(center_left_x - center_right_x) / 2))
+    midcenter_x =115 #int(abs(center_left_x - center_right_x) / 2)
+    midcenter_z = (center_left_z + center_right_z) / 2
+    print(midcenter_x,midcenter_z)
 
-    # left_shifted_depth, left_shifted_color = shift_points_in_stack(left_stack_depth, left_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=-1)
-    # right_shifted_depth, right_shifted_color = shift_points_in_stack(right_stack_depth, right_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=1)
+    left_shifted_depth, left_shifted_color = shift_points_in_stack(left_stack_depth, left_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=-1)
+    right_shifted_depth, right_shifted_color = shift_points_in_stack(right_stack_depth, right_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=1)
 
-    # # 合併 stack
-    # h, w = left_depth.shape
-    # merged_depth_stack, merged_color_stack = merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color, h, w)
+    # 合併 stack
+    h, w = left_depth.shape
+    merged_depth_stack, merged_color_stack = merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color, h, w)
 
-    # # 顯示虛擬視角圖像
-    # print("⚠️ 顯示虛擬視角圖像")
-    # show_virtual_views(left_stack_color, right_stack_color, merged_color_stack)
+    # 顯示虛擬視角圖像
+    print("⚠️ 顯示虛擬視角圖像")
+    show_virtual_views(left_shifted_color, right_shifted_color, merged_color_stack)
 
     # print("⚠️ 顯示點雲")
-    # print(merged_depth_stack[0][0])
     # show_point_cloud_from_stack(merged_depth_stack, merged_color_stack, downsample=DOWNSAMPLE)
