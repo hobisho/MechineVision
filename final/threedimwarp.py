@@ -12,6 +12,35 @@ FOCAL_LENGTH = 525.0     # 相機焦距（像素）
 DEPTH_SCALE = 1.0        # 0~255 深度值映射至幾公尺
 DOWNSAMPLE = 4           # 點雲下採樣倍率
 
+# ---------- 載入深度和顏色圖像 ----------
+def load_depth_and_color(depth_path, color_path):
+    depth_raw = imageio.imread(depth_path).astype(np.float32)
+    depth_map = (255.0 - depth_raw) / 255.0 * DEPTH_SCALE
+    color_image = imageio.imread(color_path)
+    if color_image.ndim == 2:
+        color_image = np.stack([color_image] * 3, axis=-1)
+    elif color_image.shape[2] == 4:
+        color_image = color_image[:, :, :3]
+    return depth_map, color_image, depth_raw
+
+# ---------- 在 warp 前先左右平移 ----------
+def shift_image_horizontal(img, shift_amount):
+    h, w = img.shape[:2]
+
+    if img.all() <= 2:  # 深度圖
+        shifted = np.ones_like(img)*-1
+    else:  # 彩色圖
+        shifted = np.zeros_like(img)
+
+    if shift_amount > 0:
+        shifted[:, shift_amount:] = img[:, :w - shift_amount]
+    elif shift_amount < 0:
+        shifted[:, :w + shift_amount] = img[:, -shift_amount:]
+    else:
+        shifted = img.copy()
+
+    return shifted
+
 # ---------- 前向投影為 stack ----------
 def forward_warp_to_stack(depth_map, color_img, baseline, focal_length, shift):
     h, w = depth_map.shape
@@ -21,7 +50,7 @@ def forward_warp_to_stack(depth_map, color_img, baseline, focal_length, shift):
     for y in range(h):
         for x in range(w):
             d = depth_map[y, x]
-            if d > 1e-3:
+            if d > 1e-2:
                 disparity = (baseline * focal_length) / d
                 x_virtual = int(round(x + shift * disparity))
                 if 0 <= x_virtual < w:
@@ -36,54 +65,6 @@ def forward_warp_to_stack(depth_map, color_img, baseline, focal_length, shift):
                 color_stack[y][x].append(color_img[y, x])
 
     return depth_stack, color_stack
-
-# ---------- 載入深度和顏色圖像 ----------
-def load_depth_and_color(depth_path, color_path):
-    depth_raw = imageio.imread(depth_path).astype(np.float32)
-    depth_map = (255.0 - depth_raw) / 255.0 * DEPTH_SCALE
-    color_image = imageio.imread(color_path)
-    if color_image.ndim == 2:
-        color_image = np.stack([color_image] * 3, axis=-1)
-    elif color_image.shape[2] == 4:
-        color_image = color_image[:, :, :3]
-    return depth_map, color_image, depth_raw
-
-# ---------- 顯示圖像視覺結果 ----------
-def show_virtual_views(left_stack_color, right_stack_color, merged_stack_color, left_stack_depth=None, right_stack_depth=None, merged_stack_depth=None):
-    def frontmost_color(stack_color, stack_depth):
-        h, w = len(stack_color), len(stack_color[0])
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        for y in range(h):
-            for x in range(w):
-                colors = stack_color[y][x]
-                depths = stack_depth[y][x] if stack_depth and stack_depth[y][x] else [1] * len(colors)  # 使用深度，若為 None 或空則設為 1
-                if colors:
-                    min_idx = np.argmin(depths)
-                    img[y, x] = np.array(colors[min_idx], dtype=np.uint8)
-        return img
-
-    left_img = frontmost_color(left_stack_color, left_stack_depth)
-    right_img = frontmost_color(right_stack_color, right_stack_depth)
-    merged_img = frontmost_color(merged_stack_color, merged_stack_depth)
-
-    plt.figure(figsize=(15, 5))
-    plt.subplot(1, 3, 1)
-    plt.title("Warped Left View")
-    plt.imshow(left_img)
-    plt.axis('off')
-
-    plt.subplot(1, 3, 2)
-    plt.title("Warped Right View")
-    plt.imshow(right_img)
-    plt.axis('off')
-
-    plt.subplot(1, 3, 3)
-    plt.title("Merged Virtual View")
-    plt.imshow(merged_img)
-    plt.axis('off')
-
-    plt.tight_layout()
-    plt.show()
 
 # ---------- 計算重心 ----------
 def compute_centroid_from_stack(depth_stack, threshold=0.5):
@@ -165,8 +146,8 @@ def merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, ri
                     rc = np.array(right_colors[i])
 
                     # 計算權重，深度越小權重越大 (防止除零加小常數)
-                    w_left = 1.0 / ((ld + 1e-5) ** 3)
-                    w_right = 1.0 / ((rd + 1e-5) ** 3)
+                    w_left = 1.0 / ((ld + 1e-5) ** 5)
+                    w_right = 1.0 / ((rd + 1e-5) ** 5)
 
                     w_sum = w_left + w_right
                     w_left /= w_sum
@@ -191,23 +172,43 @@ def merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, ri
 
     return merged_depth_stack, merged_color_stack
 
-# ---------- 在 warp 前先左右平移 ----------
-def shift_image_horizontal(img, shift_amount):
-    h, w = img.shape[:2]
+# ---------- 顯示圖像視覺結果 ----------
+def show_virtual_views(left_stack_color, right_stack_color, merged_stack_color, left_stack_depth=None, right_stack_depth=None, merged_stack_depth=None):
+    def frontmost_color(stack_color, stack_depth):
+        h, w = len(stack_color), len(stack_color[0])
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        for y in range(h):
+            for x in range(w):
+                colors = stack_color[y][x]
+                depths = stack_depth[y][x] if stack_depth and stack_depth[y][x] else [1] * len(colors)
+                if len(colors) > 0:
+                    min_idx = np.argmin(depths)
+                    img[y, x] = np.array(colors[min_idx], dtype=np.uint8)
+        return img
 
-    if len(img.shape) == 2:  # 灰階或單通道（如 depth）
-        shifted = np.zeros_like(img)
-    else:  # 彩色圖
-        shifted = np.zeros_like(img)
 
-    if shift_amount > 0:
-        shifted[:, shift_amount:] = img[:, :w - shift_amount]
-    elif shift_amount < 0:
-        shifted[:, :w + shift_amount] = img[:, -shift_amount:]
-    else:
-        shifted = img.copy()
+    left_img = frontmost_color(left_stack_color, left_stack_depth)
+    right_img = frontmost_color(right_stack_color, right_stack_depth)
+    merged_img = frontmost_color(merged_stack_color, merged_stack_depth)
 
-    return shifted
+    plt.figure(figsize=(15, 5))
+    plt.subplot(1, 3, 1)
+    plt.title("Warped Left View")
+    plt.imshow(left_img)
+    plt.axis('off')
+
+    plt.subplot(1, 3, 2)
+    plt.title("Warped Right View")
+    plt.imshow(right_img)
+    plt.axis('off')
+
+    plt.subplot(1, 3, 3)
+    plt.title("Merged Virtual View")
+    plt.imshow(merged_img)
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
 
 
 
@@ -218,9 +219,9 @@ if __name__ == "__main__":
     right_depth, right_color, _ = load_depth_and_color("./final/output/disparity_right.jpg", f"{path}_right_right.jpg")
     print(left_depth.shape)
     
-    cluster_mean ,error= analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
-    print(cluster_mean)
-    shift = -int(cluster_mean/2)
+    (max_group_mean, max_group_max, min_group_mean,avg_dx)= analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
+    print(min_group_mean)
+    shift = -int(min_group_mean/2)
     left_color_shifted = shift_image_horizontal(left_color, shift)
     right_color_shifted = shift_image_horizontal(right_color, -shift)
     left_depth_shifted = shift_image_horizontal(left_depth, shift)
@@ -230,11 +231,11 @@ if __name__ == "__main__":
     left_stack_depth, left_stack_color = forward_warp_to_stack(left_depth_shifted, left_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
     right_stack_depth, right_stack_color = forward_warp_to_stack(right_depth_shifted, right_color_shifted, BASELINE, FOCAL_LENGTH, shift=0)
 
-    center_left_x,center_left_z = compute_centroid_from_stack(left_stack_depth, threshold=0.4)
-    center_right_x,center_right_z = compute_centroid_from_stack(right_stack_depth, threshold=0.4)
-    print(int(abs(center_left_x - center_right_x) / 2))
-    midcenter_x =115 #int(abs(center_left_x - center_right_x) / 2)
-    midcenter_z = (center_left_z + center_right_z) / 2
+    # center_left_x,center_left_z = compute_centroid_from_stack(left_stack_depth, threshold=0.4)
+    # center_right_x,center_right_z = compute_centroid_from_stack(right_stack_depth, threshold=0.4)
+    # print(int(abs(center_left_x - center_right_x) / 2))
+    midcenter_x = int(max_group_max-min_group_mean)/2.2 #int(abs(center_left_x - center_right_x) / 2)
+    midcenter_z = 0
     print(midcenter_x,midcenter_z)
 
     left_shifted_depth, left_shifted_color = shift_points_in_stack(left_stack_depth, left_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=-1)
@@ -246,7 +247,7 @@ if __name__ == "__main__":
 
     # 顯示虛擬視角圖像
     print("⚠️ 顯示虛擬視角圖像")
-    show_virtual_views(left_shifted_color, right_shifted_color, merged_color_stack)
+    show_virtual_views(left_color, merged_color_stack, right_color)
 
     # print("⚠️ 顯示點雲")
     # show_point_cloud_from_stack(merged_depth_stack, merged_color_stack, downsample=DOWNSAMPLE)
