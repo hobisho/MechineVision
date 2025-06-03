@@ -264,12 +264,14 @@ if __name__ == "__main__":
     right_shifted_depth, right_shifted_color = shift_points_in_stack(right_stack_depth, right_stack_color, midcenter_x, midcenter_z,threshold=0.5,constant=1)
 
     # 合併深度圖
+<<<<<<< HEAD
     merged_depth_stack, merged_color_stack = merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color)
     
     
     # 補洞
 
     # 補洞
+<<<<<<< HEAD
     # merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack, merged_color_stack)
     a=time.time()
     merged_depth_shift, merged_color_shift = shift_points_in_stack(merged_depth_stack, merged_color_stack, midcenter_x, midcenter_z,threshold=0.5,constant=-1,time =1)
@@ -282,6 +284,20 @@ if __name__ == "__main__":
 
     # merged_depth_shift, merged_color_shift = inpaint_stack_median(merged_depth_shift, merged_color_shift)
     # 顯示虛擬視角圖像
+=======
+    merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack, merged_color_stack)
+    print(f"⚠️ 平移深度圖耗時: {time.time() - a:.2f} 秒")
+        # 顯示虛擬視角圖像
+=======
+    h, w = left_depth.shape
+    merged_depth_stack, merged_color_stack = merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color, h, w)
+
+    # 補洞
+    merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack, merged_color_stack)
+
+    # 顯示虛擬視角圖像
+>>>>>>> parent of 8a58669 ({finish}finsih merge but having hole)
+>>>>>>> c06ada8 (Try to dtop)
     print("⚠️ 顯示虛擬視角圖像")
     show_virtual_views(left_color, merged_color_stack, right_color)
 
