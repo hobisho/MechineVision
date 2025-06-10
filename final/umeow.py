@@ -391,21 +391,26 @@ def inpaint_stack_median_numpy(depth_stack, color_stack, kernel_size=3, max_iter
     return depth_stack, color_stack
 
 # ---------- 顯示圖像視覺結果 ----------
-def frontmost_color_numpy(stack_depth,stack_color):
+def frontmost_color_numpy(stack_depth, stack_color):
     """
+    從顏色堆疊中提取最前端的 RGB 顏色，根據深度堆疊或預設規則。
+
     參數:
     - stack_color: shape = (h, w, c, 3)，每個 (y,x) 都是一個 c 長度的顏色堆疊 (RGB)
     - stack_depth: None 或 shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
-    
+
     行為（向量化版）：
     - 如果 stack_depth is None，直接回傳 stack_color[..., 0, :]；
     - 否則把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
-        再用 idx 去從 stack_color 抽出對應的 RGB 值。
+    再用 idx 去從 stack_color 抽出對應的 RGB 值。
     - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
+
+    回傳:
+    - front_color: shape = (h, w, 3)，每個 (y,x) 的最前端 RGB 顏色。
     """
     h, w = stack_color.shape[:2]
 
-    # case 1: 沒有深度資訊，或想統一直接拿第一個通道
+    # case 1: 沒有深度資訊，直接取第一層顏色
     if stack_depth is None:
         return stack_color[..., 0, :].copy()  # (h, w, 3)
 
@@ -414,12 +419,16 @@ def frontmost_color_numpy(stack_depth,stack_color):
     if not np.issubdtype(depth.dtype, np.floating):
         depth = depth.astype(np.float32)
 
-    # 用 advanced-indexing 一次抽出最前端的顏色 (h, w, 3)
-    # 先生成 (h, w) 的 y, x 座標網格
-    yy, xx = np.indices((h, w))
-    
-    front_color = stack_color[yy, xx, 0]  # shape = (h, w, 3)
-    
+    # 將 np.nan 替換為極大值
+    depth = np.where(np.isnan(depth), np.finfo(np.float32).max, depth)
+
+    # 對 axis=2 計算 argmin，得到最小深度索引 (h, w)
+    idx = np.argmin(depth, axis=2)  # shape = (h, w)
+
+    # 使用 advanced indexing 提取對應顏色
+    yy, xx = np.indices((h, w))  # 座標網格
+    front_color = stack_color[yy, xx, idx]  # shape = (h, w, 3)
+
     return front_color
 
 def frontmost_depth_numpy(stack_depth):
@@ -465,6 +474,7 @@ if __name__ == "__main__":
     imgLR = cv2.imread(f"image/box_left_right.jpg", cv2.IMREAD_GRAYSCALE)
     imgRL = cv2.imread(f"image/box_right_left.jpg", cv2.IMREAD_GRAYSCALE)
     imgRR = cv2.imread(f"image/box_right_right.jpg", cv2.IMREAD_GRAYSCALE)
+    print(template.shape)
 
     depth_left, depth_right = depth(imgLL, imgLR, imgRL, imgRR, target_width=template.shape[0])
     
@@ -475,7 +485,7 @@ if __name__ == "__main__":
     # 計算深度圖shift
     (max_group_mean, max_group_max, min_group_mean,avg_dx) = analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
     shift = int(min_group_mean / 2)
-    midcenter_x = int(max_group_max - min_group_mean) / 2.15 #int(abs(center_left_x - center_right_x) / 2)
+    midcenter_x = int(max_group_max - min_group_mean) / 2.3 #int(abs(center_left_x - center_right_x) / 2)
     midcenter_z = 0
 
     # 平移圖像
@@ -509,6 +519,8 @@ if __name__ == "__main__":
     for t in range (-20,21):
         print(t)
         times = (t/20) 
+        shift_time = int(2 * shift * ((t+20)/40))
+        print(shift_time)
         
         fast_merged_depth_stack, fast_merged_color_stack = shift_points_in_stack2(mid_merged_depth_stack, mid_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant= 1,time = times)
 
@@ -516,7 +528,10 @@ if __name__ == "__main__":
             
         merged_img = frontmost_color_numpy(fast_merged_depth_stack, fast_merged_color_stack)
 
-        img = Image.fromarray(merged_img)
+        print(len(merged_img),len(merged_img[0]))
+        out = merged_img[: ,shift_time:int(shift_time+template.shape[1]), :]
+
+        img = Image.fromarray(out)
 
         gif.append(img)
 

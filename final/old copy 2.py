@@ -4,6 +4,7 @@ from scipy.ndimage import median_filter
 import imageio.v2 as imageio
 from mpl_toolkits.mplot3d import Axes3D
 from def_orb import analyze_displacement
+from cloud import show_point_cloud_from_stack
 import time
 
 # ---------- 參數設定 ----------
@@ -213,7 +214,7 @@ if __name__ == "__main__":
     (max_group_mean, max_group_max, min_group_mean,avg_dx)= analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
     print(min_group_mean)
     shift = int(min_group_mean/2)
-    midcenter_x = int(max_group_max-min_group_mean)/2.15 #int(abs(center_left_x - center_right_x) / 2)
+    midcenter_x = int(max_group_max-min_group_mean)/2.2 #int(abs(center_left_x - center_right_x) / 2)
     midcenter_z = 0
     print(midcenter_x,midcenter_z)
 
@@ -238,17 +239,7 @@ if __name__ == "__main__":
 
     # 補洞
     merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack1, merged_color_stack1)
-    
-    a=time.time()
-    # for i in range (-10, 11):
-    merged_depth_stack, merged_color_stack = shift_points_in_stack(merged_depth_stack, merged_color_stack, midcenter_x, midcenter_z,threshold=0.5,constant=1,time = 1)
 
-    merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack, merged_color_stack)
-    # 顯示虛擬視角圖像
-    print("⚠️ 顯示虛擬視角圖像")
-    print(time.time()-a)
-    show_virtual_views(left_stack_color, merged_color_stack, right_stack_color,merged_depth_stack)
-    print(merged_depth_stack1[964][1494],merged_color_stack1[964][1494])  # 顯示特定點的顏色和深度值
 #1494 964
     # print("⚠️ 顯示點雲")
-    # show_point_cloud_from_stack(merged_depth_stack, merged_color_stack, downsample=DOWNSAMPLE)
+    show_point_cloud_from_stack(merged_depth_stack, merged_color_stack, downsample=DOWNSAMPLE)
