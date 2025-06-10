@@ -80,7 +80,7 @@ else:
 
 # ====== 匹配點視覺化 ======
 filtered_matches = sorted(filtered_matches, key=lambda x: x.distance)
-img_match = cv2.drawMatches(img1, kp1, img2, kp2, filtered_matches[:], None, flags=2)
+img_match = cv2.drawMatches(img2, kp1, img1, kp2, filtered_matches[:], None, flags=2)
 plt.figure(figsize=(12, 6))
 plt.imshow(img_match)
 plt.title("Filtered Matches (|Δy| ≤ 5)")

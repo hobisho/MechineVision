@@ -1,6 +1,13 @@
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
+
+# ---------- 參數設定 ----------
+BASELINE = 0.3           # 你拍照時的左右鏡頭或移動距離（公尺），如果是手機左右移拍，請自行量尺
+FOCAL_LENGTH = 1500.0    # 你照片如果接近1920x1080，填1500，大約是照片寬的0.75倍（手機大多是1000~2000）
+DEPTH_SCALE = 5.0        # 先預設1.0，之後用實物距離再微調
+DOWNSAMPLE = 4
 
 def ErodeDilate(img):
     medianBlur_img = cv2.medianBlur(img, 9)  # 平滑視差圖，去除雜訊
@@ -51,8 +58,17 @@ def depth(imgLL, imgLR, imgRL, imgRR):
     disp_resize_right = cv2.resize(disp_8u_right, (int(d*h), int(d*w)))
     cv2.imwrite(f"./final/output/disparity_left.jpg", disp_resize_left)
     cv2.imwrite(f"./final/output/disparity_right.jpg", disp_resize_right)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.title("Disparity Left")
+    plt.imshow(disp_resize_left, cmap='gray')
+    plt.axis('off')
+    plt.subplot(1, 2, 2)
+    plt.title("Disparity Right")
+    plt.imshow(disp_resize_right, cmap='gray')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
     path = "./final/image/box"

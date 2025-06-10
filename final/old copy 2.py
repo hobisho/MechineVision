@@ -7,10 +7,10 @@ from def_orb import analyze_displacement
 import time
 
 # ---------- 參數設定 ----------
-BASELINE = 0.1           # 雙目基線（公尺）
-FOCAL_LENGTH = 525.0     # 相機焦距（像素）
-DEPTH_SCALE = 1.0        # 0~255 深度值映射至幾公尺
-DOWNSAMPLE = 4           # 點雲下採樣倍率
+BASELINE = 0.3           # 你拍照時的左右鏡頭或移動距離（公尺），如果是手機左右移拍，請自行量尺
+FOCAL_LENGTH = 1500.0    # 你照片如果接近1920x1080，填1500，大約是照片寬的0.75倍（手機大多是1000~2000）
+DEPTH_SCALE = 5.0        # 先預設1.0，之後用實物距離再微調
+DOWNSAMPLE = 4
 
 # ---------- 載入深度和顏色圖像 ----------
 def load_depth_and_color(depth_path, color_path):
@@ -88,11 +88,11 @@ def shift_points_in_stack(depth_stack, color_stack, midcenter_x, midcenter_z, th
                 if d < threshold:
                     shift_x = midcenter_x *(1-d)/(1-midcenter_z)
                     new_x = x + int(constant * time *  shift_x)
-                    if 0 <= new_x < w:
-                        new_depth_stack[y][new_x].append(d)
-                        new_color_stack[y][new_x].append(c)
-                    else:
-                        continue  # 超出邊界直接跳過
+                    # if 0 <= new_x < w:
+                    new_depth_stack[y][new_x].append(d)
+                    new_color_stack[y][new_x].append(c)
+                    # else:
+                    #     continue  # 超出邊界直接跳過
                 else:
                     new_depth_stack[y][x].append(d)
                     new_color_stack[y][x].append(c)
