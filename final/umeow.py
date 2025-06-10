@@ -528,15 +528,19 @@ if __name__ == "__main__":
             
         merged_img = frontmost_color_numpy(fast_merged_depth_stack, fast_merged_color_stack)
 
-        print(len(merged_img),len(merged_img[0]))
+        # print(len(merged_img),len(merged_img[0]))
         out = merged_img[: ,shift_time:int(shift_time+template.shape[1]), :]
 
         img = Image.fromarray(out)
 
         gif.append(img)
 
+    k = len(gif)
+    for i in range(k-1):
+        gif.append(gif[k-1-i])
+
     gif[0].save(
-    "synced_square.gif",
+    "rsynced_square.gif",
     save_all=True,
     append_images=gif[1:],
     duration=100,  # 每幀 50 毫秒，控制同步播放速度
