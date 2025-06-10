@@ -3,7 +3,7 @@ import time
 import numpy as np
 import imageio.v2 as imageio
 import matplotlib.pyplot as plt
-
+from PIL import Image
 from numba import njit
 from sklearn.cluster import KMeans
 from scipy.ndimage import median_filter, binary_dilation
@@ -191,8 +191,8 @@ def forward_warp_to_stack_numpy(depth_map: np.ndarray, color_img: np.ndarray):
     - depth_map: np.float32, shape = (h, w)
     - color_img: np.uint8,  shape = (h, w, 3)
     回傳：
-      - depth_stack: shape = (h, w, 1), dtype=float32
-      - color_stack: shape = (h, w, 1, 3), dtype=uint8
+    - depth_stack: shape = (h, w, 1), dtype=float32
+    - color_stack: shape = (h, w, 1, 3), dtype=uint8
     """
 
     # 1) 檢查維度是否正確
@@ -349,12 +349,12 @@ def inpaint_stack_median_numpy(depth_stack, color_stack, kernel_size=3, max_iter
         
         # 如果没有需要填充的点，提前退出
         if not np.any(has_valid_neighbors):
-            print(f"[第 {i+1} 輪] 沒有需要補的點")
+            # print(f"[第 {i+1} 輪] 沒有需要補的點")
             break
         
         # 获取需要填充的坐标
         fill_coords = np.argwhere(has_valid_neighbors)
-        print(f"[第 {i+1} 輪] 需要補 {len(fill_coords)} 個點")
+        # print(f"[第 {i+1} 輪] 需要補 {len(fill_coords)} 個點")
         
         # 创建深度和颜色的扩展视图
         padded_depth = np.full(padded_shape, np.nan, dtype=np.float32)
@@ -391,17 +391,17 @@ def inpaint_stack_median_numpy(depth_stack, color_stack, kernel_size=3, max_iter
     return depth_stack, color_stack
 
 # ---------- 顯示圖像視覺結果 ----------
-def frontmost_color_numpy(stack_color, stack_depth=None):
+def frontmost_color_numpy(stack_depth,stack_color):
     """
     參數:
-      - stack_color: shape = (h, w, c, 3)，每個 (y,x) 都是一個 c 長度的顏色堆疊 (RGB)
-      - stack_depth: None 或 shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
+    - stack_color: shape = (h, w, c, 3)，每個 (y,x) 都是一個 c 長度的顏色堆疊 (RGB)
+    - stack_depth: None 或 shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
     
     行為（向量化版）：
-      - 如果 stack_depth is None，直接回傳 stack_color[..., 0, :]；
-      - 否則把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
+    - 如果 stack_depth is None，直接回傳 stack_color[..., 0, :]；
+    - 否則把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
         再用 idx 去從 stack_color 抽出對應的 RGB 值。
-      - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
+    - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
     """
     h, w = stack_color.shape[:2]
 
@@ -425,12 +425,12 @@ def frontmost_color_numpy(stack_color, stack_depth=None):
 def frontmost_depth_numpy(stack_depth):
     """
     參數:
-      - stack_depth: shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
+    - stack_depth: shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
     
     行為（向量化版）：
-      - 把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
+    - 把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
         再用 idx 去從 stack_depth 抽出對應的深度值。
-      - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
+    - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
     """
     h, w = stack_depth.shape[:2]
 
@@ -446,56 +446,15 @@ def frontmost_depth_numpy(stack_depth):
     
     return front_depth
 
-def show_virtual_views_numpy(
-        left_stack_color, right_stack_color, merged_stack_color,
-        left_stack_depth, right_stack_depth, merge_stack_depth):
+def show_virtual_views_numpy(merged_stack_color, merge_stack_depth):
     # 先算出每張「最前端顏色/深度」的圖
-    left_img   = frontmost_color_numpy(left_stack_color)
-    right_img  = frontmost_color_numpy(right_stack_color, right_stack_depth)
     merged_img = frontmost_color_numpy(merged_stack_color, merge_stack_depth)
     
     print(merge_stack_depth[1010, 1484])
 
-    left_depth_img   = frontmost_depth_numpy(left_stack_depth)
-    right_depth_img  = frontmost_depth_numpy(right_stack_depth)
-    merged_depth_img = frontmost_depth_numpy(merge_stack_depth)
+    # merged_depth_img = frontmost_depth_numpy(merge_stack_depth)
 
-    plt.figure(figsize=(15, 10))
-
-    # ========= 第一列：顏色圖 =========
-    plt.subplot(2, 3, 1)
-    plt.title("Warped Left View")
-    plt.imshow(left_img)
-    plt.axis("off")
-
-    plt.subplot(2, 3, 2)
-    plt.title("Merged Virtual View")
-    plt.imshow(merged_img)
-    plt.axis("off")
-
-    plt.subplot(2, 3, 3)
-    plt.title("Warped Right View")
-    plt.imshow(right_img)
-    plt.axis("off")
-
-    # ========= 第二列：深度圖 =========
-    plt.subplot(2, 3, 4)
-    plt.title("Warped Left Depth")
-    plt.imshow(left_depth_img, cmap="gray")
-    plt.axis("off")
-
-    plt.subplot(2, 3, 5)
-    plt.title("Merged Virtual Depth")
-    plt.imshow(merged_depth_img, cmap="gray")
-    plt.axis("off")
-
-    plt.subplot(2, 3, 6)
-    plt.title("Warped Right Depth")
-    plt.imshow(right_depth_img, cmap="gray")
-    plt.axis("off")
-
-    plt.tight_layout()
-    plt.show()
+    return merged_img
 
 
 if __name__ == "__main__":
@@ -541,16 +500,34 @@ if __name__ == "__main__":
 
     # 補洞
 
-    fast_merged_depth_stack, fast_merged_color_stack = inpaint_stack_median_numpy(fast_merged_depth_stack1, fast_merged_color_stack1)
+    mid_merged_depth_stack, mid_merged_color_stack = inpaint_stack_median_numpy(fast_merged_depth_stack1, fast_merged_color_stack1)
 
     # show_virtual_views_numpy(fast_left_stack_color, fast_right_stack_color, fast_merged_color_stack, fast_left_stack_depth, fast_right_stack_depth, fast_merged_depth_stack)
     
+    gif = []
     # 第二次偏移
-    
-    fast_merged_depth_stack, fast_merged_color_stack = shift_points_in_stack2(fast_merged_depth_stack, fast_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant=1)
+    for t in range (0,11):
+        print(t)
+        times = (t/10) 
+        if t >= 0:
+            constant = 1
+        else:
+            constant = -1
+        
+        fast_merged_depth_stack, fast_merged_color_stack = shift_points_in_stack2(mid_merged_depth_stack, mid_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant= 1,time = times)
 
-    show_virtual_views_numpy(fast_left_stack_color, fast_right_stack_color, fast_merged_color_stack, fast_left_stack_depth, fast_right_stack_depth, fast_merged_depth_stack)
+        fast_merged_depth_stack, fast_merged_color_stack = inpaint_stack_median_numpy(fast_merged_depth_stack, fast_merged_color_stack)
+            
+        merged_img = frontmost_color_numpy(fast_merged_depth_stack, fast_merged_color_stack)
 
-    fast_merged_depth_stack, fast_merged_color_stack = inpaint_stack_median_numpy(fast_merged_depth_stack, fast_merged_color_stack)
-    
-    show_virtual_views_numpy(fast_left_stack_color, fast_right_stack_color, fast_merged_color_stack, fast_left_stack_depth, fast_right_stack_depth, fast_merged_depth_stack)
+        img = Image.fromarray(merged_img)
+
+        gif.append(img)
+
+    gif[0].save(
+    "synced_square.gif",
+    save_all=True,
+    append_images=gif[1:],
+    duration=50,  # 每幀 50 毫秒，控制同步播放速度
+    loop=0
+)

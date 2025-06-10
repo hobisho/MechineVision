@@ -88,11 +88,11 @@ def shift_points_in_stack(depth_stack, color_stack, midcenter_x, midcenter_z, th
                 if d < threshold:
                     shift_x = midcenter_x *(1-d)/(1-midcenter_z)
                     new_x = x + int(constant * time *  shift_x)
-                    # if 0 <= new_x < w:
-                    new_depth_stack[y][new_x].append(d)
-                    new_color_stack[y][new_x].append(c)
-                    # else:
-                    #     continue  # 超出邊界直接跳過
+                    if 0 <= new_x < w:
+                        new_depth_stack[y][new_x].append(d)
+                        new_color_stack[y][new_x].append(c)
+                    else:
+                        continue  # 超出邊界直接跳過
                 else:
                     new_depth_stack[y][x].append(d)
                     new_color_stack[y][x].append(c)
@@ -101,7 +101,7 @@ def shift_points_in_stack(depth_stack, color_stack, midcenter_x, midcenter_z, th
 
 # ---------- 合併左右堆疊 ----------
 def merge_stacks(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color):
-    h, w = len(left_shifted_depth), len(left_shifted_depth[0])
+    h, w = len(right_shifted_depth), len(right_shifted_depth[0])
     merged_depth_stack = [[[] for _ in range(w)] for _ in range(h)]
     merged_color_stack = [[[] for _ in range(w)] for _ in range(h)]
 
@@ -240,6 +240,7 @@ if __name__ == "__main__":
     merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack1, merged_color_stack1)
     
     a=time.time()
+    # for i in range (-10, 11):
     merged_depth_stack, merged_color_stack = shift_points_in_stack(merged_depth_stack, merged_color_stack, midcenter_x, midcenter_z,threshold=0.5,constant=1,time = 1)
 
     merged_depth_stack, merged_color_stack = inpaint_stack_median(merged_depth_stack, merged_color_stack)
