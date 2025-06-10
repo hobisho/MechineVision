@@ -9,7 +9,7 @@ img1 = cv2.imread(f"{path}_left_left.jpg", cv2.IMREAD_GRAYSCALE)
 img2 = cv2.imread(f"{path}_right_right.jpg", cv2.IMREAD_GRAYSCALE)
 
 # ORB 特徵點偵測與描述子
-orb = cv2.ORB_create(nfeatures=1000)
+orb = cv2.ORB_create(nfeatures=10000)
 kp1, des1 = orb.detectAndCompute(img2, None)
 kp2, des2 = orb.detectAndCompute(img1, None)
 

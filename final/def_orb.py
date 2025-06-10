@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 
 def analyze_displacement(img1, img2):
-    orb = cv2.ORB_create(nfeatures=1000)
+    orb = cv2.ORB_create(nfeatures=10000)
     kp1, des1 = orb.detectAndCompute(img2, None)
     kp2, des2 = orb.detectAndCompute(img1, None)
 

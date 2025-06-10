@@ -475,7 +475,7 @@ if __name__ == "__main__":
     # 計算深度圖shift
     (max_group_mean, max_group_max, min_group_mean,avg_dx) = analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
     shift = int(min_group_mean / 2)
-    midcenter_x = int(max_group_max - min_group_mean) / 2.4 #int(abs(center_left_x - center_right_x) / 2)
+    midcenter_x = int(max_group_max - min_group_mean) / 2.15 #int(abs(center_left_x - center_right_x) / 2)
     midcenter_z = 0
 
     # 平移圖像
@@ -506,13 +506,9 @@ if __name__ == "__main__":
     
     gif = []
     # 第二次偏移
-    for t in range (0,11):
+    for t in range (-20,21):
         print(t)
-        times = (t/10) 
-        if t >= 0:
-            constant = 1
-        else:
-            constant = -1
+        times = (t/20) 
         
         fast_merged_depth_stack, fast_merged_color_stack = shift_points_in_stack2(mid_merged_depth_stack, mid_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant= 1,time = times)
 
@@ -528,6 +524,6 @@ if __name__ == "__main__":
     "synced_square.gif",
     save_all=True,
     append_images=gif[1:],
-    duration=50,  # 每幀 50 毫秒，控制同步播放速度
+    duration=100,  # 每幀 50 毫秒，控制同步播放速度
     loop=0
 )
