@@ -8,6 +8,13 @@ from numba import njit
 from sklearn.cluster import KMeans
 from scipy.ndimage import median_filter, binary_dilation
 
+# ---------- 參數設定 ----------
+BASELINE = 0.1           # 雙目基線（公尺）
+FOCAL_LENGTH = 525.0     # 相機焦距（像素）
+DEPTH_SCALE = 1.0        # 0~255 深度值映射至幾公尺
+DOWNSAMPLE = 4           # 點雲下採樣倍率
+
+# ---------- 計時器 ----------
 def time_wrapper(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
@@ -17,9 +24,9 @@ def time_wrapper(func):
         return result
     return wrapper
 
+# ---------- 修剪照片大小 ----------
 @njit
 def shrink_nan_array(depth_arr, color_arr):
-    # arr.shape = (h, w, c)
     mask = ~np.isnan(depth_arr)  # True 表示不是 NaN
     valid_counts = np.sum(mask, axis=2)  # 每個 [h, w] 有幾個非 NaN
     max_valid = np.max(valid_counts)     # 所有像素中最大的非 NaN 數量
@@ -27,9 +34,10 @@ def shrink_nan_array(depth_arr, color_arr):
     # 回傳裁切後的陣列
     return depth_arr[:, :, :max_valid], color_arr[:, :, :max_valid, :]
 
+# ---------- 左右深度圖計算 ----------
 @time_wrapper
 def depth(imgLL, imgLR, imgRL, imgRR, target_width):
-    # 左到右視差圖（已確認可行）
+    # 左到右視差圖
     Disparity = 16 * 10
     stereo_left = cv2.StereoSGBM_create(
         minDisparity=0,
@@ -46,7 +54,7 @@ def depth(imgLL, imgLR, imgRL, imgRR, target_width):
     disp_normalized_left = cv2.normalize(disparity_left, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
     disp_8u_left = np.uint8(disp_normalized_left)
 
-    # 右到左視差圖（調整參數）
+    # 右到左視差圖
     stereo_right = cv2.StereoSGBM_create(
         minDisparity=-Disparity,
         numDisparities=Disparity,
@@ -64,20 +72,22 @@ def depth(imgLL, imgLR, imgRL, imgRR, target_width):
     
     w, h = disp_8u_left.shape
     
-    d = target_width / w # 假設 d 是高度與寬度的比例
+    d = target_width / w 
     
     disp_resize_left = cv2.resize(disp_8u_left, (int(round(d*h)), int(round(d*w))))
     disp_resize_right = cv2.resize(disp_8u_right, (int(round(d*h)), int(round(d*w))))
     
     return disp_resize_left, disp_resize_right
 
+# ----------  中間50%的平均值 ---------- 
 def middle_50_percent_mean(data):
         data_sorted = np.sort(data)
         n = len(data_sorted)
         q1 = int(n * 0.25)
         q3 = int(n * 0.75)
         return np.mean(data_sorted[q1:q3])
-    
+
+# ---------- 平均平移值計算 ---------- 
 @time_wrapper
 def analyze_displacement(img1, img2):
     orb = cv2.ORB_create(nfeatures=1000)
@@ -100,49 +110,35 @@ def analyze_displacement(img1, img2):
             dy_list.append(dy)
             filtered_matches.append(m)
 
-    if len(dx_list) == 0:
-        print("⚠️ 過濾後沒有匹配點")
-        return None, None, None, None, None, None, None
-
     avg_dx = middle_50_percent_mean(dx_list)
 
     dx_array = np.array(dx_list).reshape(-1, 1)
-    if len(dx_array) < 5:
-        max_group_mean = None
-        max_group_max = None
-        min_group_mean = None
-    else:
-        kmeans = KMeans(n_clusters=2, random_state=0).fit(dx_array)
-        labels = kmeans.labels_
-        dx_array = dx_array.flatten()
 
-        groups = {}
-        counts = {}
-        group_values = {}
-        for i in range(2):
-            group_dx = dx_array[labels == i]
-            groups[i] = np.mean(group_dx)
-            counts[i] = len(group_dx)
-            group_values[i] = group_dx
+    kmeans = KMeans(n_clusters=2, random_state=0).fit(dx_array)
+    labels = kmeans.labels_
+    dx_array = dx_array.flatten()
 
-        # 最大群
-        max_count_group_id = max(counts, key=counts.get)
-        max_group_mean = groups[max_count_group_id]
-        max_group_max = np.max(group_values[max_count_group_id])
-        # 最小群
-        min_count_group_id = min(counts, key=counts.get)
-        min_group_mean = groups[min_count_group_id]
+    groups = {}
+    counts = {}
+    group_values = {}
+    for i in range(2):
+        group_dx = dx_array[labels == i]
+        groups[i] = np.mean(group_dx)
+        counts[i] = len(group_dx)
+        group_values[i] = group_dx
+
+    # 最大群
+    max_count_group_id = max(counts, key=counts.get)
+    max_group_mean = groups[max_count_group_id]
+    max_group_max = np.max(group_values[max_count_group_id])
+    # 最小群
+    min_count_group_id = min(counts, key=counts.get)
+    min_group_mean = groups[min_count_group_id]
 
     return (abs(max_group_mean) if max_group_mean is not None else None,
             abs(max_group_max) if max_group_max is not None else None,
             abs(min_group_mean) if min_group_mean is not None else None,
             abs(avg_dx))
-
-# ---------- 參數設定 ----------
-BASELINE = 0.1           # 雙目基線（公尺）
-FOCAL_LENGTH = 525.0     # 相機焦距（像素）
-DEPTH_SCALE = 1.0        # 0~255 深度值映射至幾公尺
-DOWNSAMPLE = 4           # 點雲下採樣倍率
 
 # ---------- 載入深度和顏色圖像 ----------
 @time_wrapper
@@ -155,42 +151,42 @@ def load_depth_and_color(depth_raw, color_path):
         color_image = color_image[:, :, :3]
     return depth_map, color_image
 
-# ---------- 在 warp 前先左右平移 ----------
+# ---------- 在平移背景 ----------
 @njit
-def shift_image_horizontal(img, shift_amount):
+def shift_image_background(img, shift_amount):
     h, w = img.shape[:2]
     shift_abs = abs(2*shift_amount)
-    new_w = w + shift_abs  # 擴展寬度
+    new_w = w + shift_abs  # 加寬
 
     if (new_w%2) == 1:
         new_w += 1
     if (shift_abs%2) == 1:
         shift_abs += 1
 
-    # 建立對應大小的空白圖
-    if img.ndim == 2:  # 灰階圖（例如深度圖）
-        shifted = np.ones((h, new_w), dtype=img.dtype) * 2  # 預設深度值為 2
+    # 空圖
+    if img.ndim == 2:  # 灰階圖
+        shifted = np.ones((h, new_w), dtype=img.dtype) * 2  
     else:  # 彩色圖
         shifted = np.zeros((h, new_w, img.shape[2]), dtype=img.dtype)
 
     if shift_amount < 0:
-        # 向右平移：放在右偏的位置
+        # 向右平移
         shifted[:, 0:w] = img
     elif shift_amount > 0:
-        # 向左平移：放在最左邊，裁掉 img 的左邊部分
+        # 向左平移
         shifted[:, shift_abs:w+shift_abs] = img
     else:
         shifted[:, :w] = img
 
     return shifted
 
-# ---------- 前向投影為 stack ----------
+# ---------- warping ----------
 @time_wrapper
-def forward_warp_to_stack_numpy(depth_map: np.ndarray, color_img: np.ndarray):
+def warping(depth_map: np.ndarray, color_img: np.ndarray):
     """
     - depth_map: np.float32, shape = (h, w)
     - color_img: np.uint8,  shape = (h, w, 3)
-    回傳：
+    
     - depth_stack: shape = (h, w, 1), dtype=float32
     - color_stack: shape = (h, w, 1, 3), dtype=uint8
     """
@@ -213,8 +209,6 @@ def forward_warp_to_stack_numpy(depth_map: np.ndarray, color_img: np.ndarray):
     filled_depth = median_filter(depth_map, size=3)
 
     # 4) 建立布林遮罩：
-    #    valid_mask：原 depth_map 落在 (1e-2, 1.5) 的那些 (y, x)
-    #    fallback_mask：不屬於 valid_mask，且 filled_depth != 2.0
     valid_mask = (depth_map > 1e-2) & (depth_map < 1.5)
     fallback_mask = (~valid_mask) & (filled_depth != 2.0)
 
@@ -230,10 +224,10 @@ def forward_warp_to_stack_numpy(depth_map: np.ndarray, color_img: np.ndarray):
 
 # ---------- 深度平移深度圖 ----------
 @time_wrapper
-def shift_points_in_stack2(depth_stack, color_stack, midcenter_x, midcenter_z, threshold=0.3, constant=1, time=1):
+def shift_image_object(depth_stack, color_stack, midcenter_x, midcenter_z, threshold=0.3, constant=1, time=1):
     h, w, c = depth_stack.shape
 
-    # 取得所有有效索引 (非 NaN)
+    # 找非 NaN的像素
     valid_mask = ~np.isnan(depth_stack)
     y_idx, x_idx, z_idx = np.where(valid_mask)
 
@@ -246,7 +240,6 @@ def shift_points_in_stack2(depth_stack, color_stack, midcenter_x, midcenter_z, t
         c_vals[i] = color_stack[y_idx[i], x_idx[i], z_idx[i]]
 
 
-    # 預估最大 channel 數（多一點以避免溢位）
     new_w = w + int(midcenter_x)
     max_c = c * 2
 
@@ -260,12 +253,12 @@ def shift_points_in_stack2(depth_stack, color_stack, midcenter_x, midcenter_z, t
     shift_x = midcenter_x * (1 - d_vals[need_shift]) / (1 - midcenter_z)
     new_x = x_idx[need_shift] + (constant * time * shift_x).astype(int)
 
-    # 範圍合法檢查
+    # 範圍是否超過
     in_bounds = (new_x >= 0) & (new_x < new_w)
     y_s, x_s, z_s = y_idx[need_shift][in_bounds], new_x[in_bounds], z_idx[need_shift][in_bounds]
     d_s, c_s = d_vals[need_shift][in_bounds], c_vals[need_shift][in_bounds]
 
-    # 平移後寫入
+    # 寫入
     for y, x, d, c in zip(y_s, x_s, d_s, c_s):
         idx = index_mask[y, x]
         if idx < max_c:
@@ -273,7 +266,7 @@ def shift_points_in_stack2(depth_stack, color_stack, midcenter_x, midcenter_z, t
             new_color[y, x, idx] = c
             index_mask[y, x] += 1
 
-    # 不平移的直接寫入原位置
+    # 不平移的直接寫入
     no_shift_mask = ~need_shift
     y_ns, x_ns, z_ns = y_idx[no_shift_mask], x_idx[no_shift_mask], z_idx[no_shift_mask]
     d_ns, c_ns = d_vals[no_shift_mask], c_vals[no_shift_mask]
@@ -285,162 +278,106 @@ def shift_points_in_stack2(depth_stack, color_stack, midcenter_x, midcenter_z, t
             new_color[y, x, idx] = c
             index_mask[y, x] += 1
 
-    # 最後裁剪多餘的第三維
     return shrink_nan_array(new_depth, new_color)
 
 # ---------- 合併左右堆疊 ----------
 @time_wrapper
 def merge_stacks_numpy(left_shifted_depth, left_shifted_color, right_shifted_depth, right_shifted_color):
     """
-    把左右兩個已經 shift 過的 depth/color stacks 合併，並在 z 軸（第三維）做排序，NaN 排在最後。
-    輸入:
-        left_shifted_depth:  (h, w, c)
-        left_shifted_color:  (h, w, c, 3)
-        right_shifted_depth: (h, w, c)
-        right_shifted_color: (h, w, c, 3)
-    回傳:
-        merged_depth_sorted: (h, w, 2*c)
-        merged_color_sorted: (h, w, 2*c, 3)
+        left_shifted_depth  : np.ndarray, shape = (h, w, c)
+        left_shifted_color  : np.ndarray, shape = (h, w, c, 3)
+        right_shifted_depth : np.ndarray, shape = (h, w, c)
+        right_shifted_color : np.ndarray, shape = (h, w, c, 3)
+
+        merged_depth_sorted : np.ndarray, shape = (h, w, 2c)
+        merged_color_sorted : np.ndarray, shape = (h, w, 2c, 3)
     """
-    # 1) 先水平拼接兩邊的 depth / color，形狀變成 (h, w, 2*c) / (h, w, 2*c, 3)
-    merged_depth = np.concatenate([left_shifted_depth, right_shifted_depth], axis=2)      # (h, w, 2*c)
-    merged_color = np.concatenate([left_shifted_color, right_shifted_color], axis=2)      # (h, w, 2*c, 3)
+    # 合併深度與顏色
+    merged_depth = np.concatenate([left_shifted_depth, right_shifted_depth], axis=2)
+    merged_color = np.concatenate([left_shifted_color, right_shifted_color], axis=2)
 
-    # 2) 為了讓 np.argsort 將 NaN 排在後面，我們先把 NaN 替換成一個極大值。
-    #    這裡使用 float32 的最大值 (np.finfo(np.float32).max) 作為 NaN 的代理 key。
-    #    只要所有 real depth 都 < 這個值，就能保證排序後 NaN 一定跑到最後。
+    # 將 NaN 深度替換成極大值進行排序
     big = np.finfo(np.float32).max
-    depth_key = np.where(np.isnan(merged_depth), big, merged_depth)  # (h, w, 2*c), NaN→big
+    depth_key = np.where(np.isnan(merged_depth), big, merged_depth)
 
-    # 3) 針對第三維做 argsort：對每個 (y, x) 的 2*c 個深度值排序，回傳排序後的 index
-    #    這個 idx 的 shape 是 (h, w, 2*c)，每個 [y,x] 都是一個長度為 2*c 的排列索引，
-    #    使得 depth_key[y, x, idx[y,x,:]] 是從小到大（NaN/大值在最後）。
-    idx = np.argsort(depth_key, axis=2)  # (h, w, 2*c)
+    # 每個像素在 z 軸排序
+    idx = np.argsort(depth_key, axis=2)
 
-    # 4) 利用 take_along_axis，一步把深度與顏色依照 idx 重排
-    #    - 對深度陣列：merged_depth_sorted[y,x,:] = merged_depth[y,x, idx[y,x,:]]
-    merged_depth_sorted = np.take_along_axis(merged_depth, idx, axis=2)  # (h, w, 2*c)
-
-    #    - 對顏色陣列：要先把 idx 擴充成 (h, w, 2*c, 1)，這樣才能沿著 z 軸把最後的 RGB 數值也一起帶過去
-    idx_expanded = idx[..., np.newaxis]  # (h, w, 2*c, 1)
-    merged_color_sorted = np.take_along_axis(merged_color, idx_expanded, axis=2)  # (h, w, 2*c, 3)
+    # 重排深度與顏色
+    merged_depth_sorted = np.take_along_axis(merged_depth, idx, axis=2)
+    idx_expanded = idx[..., np.newaxis]
+    merged_color_sorted = np.take_along_axis(merged_color, idx_expanded, axis=2)
 
     return shrink_nan_array(merged_depth_sorted, merged_color_sorted)
 
 # ---------- 深度圖補洞 ----------
 @time_wrapper
-def inpaint_stack_median_numpy(depth_stack, color_stack, kernel_size=3, max_iter=10):
-    # 创建有效点掩码（非NaN的点）
+def inpainting(depth_stack, color_stack, kernel_size=3, max_iter=10):
+    # 找非 NaN 的地方
     valid_mask = ~np.isnan(depth_stack[..., 0])
-    
-    # 为深度和颜色创建填充后的数组
+
+    # 計算補丁範圍的 padding 數量
     pad = kernel_size // 2
-    padded_shape = (depth_stack.shape[0] + 2 * pad, 
-                   depth_stack.shape[1] + 2 * pad, 
-                   depth_stack.shape[2])
-    
-    # 创建有效点计数的结构元素
+
+    # 計算 padding 後的深度圖形狀
+    padded_shape = (
+        depth_stack.shape[0] + 2 * pad,
+        depth_stack.shape[1] + 2 * pad,
+        depth_stack.shape[2]
+    )
+
+    # 創建遮罩
     structure = np.ones((kernel_size, kernel_size, 1), dtype=bool)
-    
+
     for i in range(max_iter):
-        # 获取需要填充的位置（当前为NaN但周围有有效点）
+        # 找出要補的點
         invalid_mask = np.isnan(depth_stack[..., 0])
         has_valid_neighbors = binary_dilation(valid_mask, structure=structure[..., 0]) & invalid_mask
-        
-        # 如果没有需要填充的点，提前退出
+
+        # 如果沒有需要補的點，提前結束
         if not np.any(has_valid_neighbors):
-            # print(f"[第 {i+1} 輪] 沒有需要補的點")
             break
-        
-        # 获取需要填充的坐标
+
+        # 找座標 (y, x)
         fill_coords = np.argwhere(has_valid_neighbors)
-        # print(f"[第 {i+1} 輪] 需要補 {len(fill_coords)} 個點")
-        
-        # 创建深度和颜色的扩展视图
+
+        # 建立 padding 後的深度與顏色圖
         padded_depth = np.full(padded_shape, np.nan, dtype=np.float32)
         padded_color = np.zeros(padded_shape + (3,), dtype=np.uint8)
-        
+
+        # 將原始堆疊資料放入 padding 中央
         padded_depth[pad:-pad, pad:-pad] = depth_stack
         padded_color[pad:-pad, pad:-pad] = color_stack
-        
-        # 为每个需要填充的点计算邻域中值
+
         for y, x in fill_coords:
-            # 获取邻域数据
+            # 擷取以 (y, x) 為中心的區域
             depth_roi = padded_depth[y:y+kernel_size, x:x+kernel_size]
             color_roi = padded_color[y:y+kernel_size, x:x+kernel_size]
-            
-            # 获取所有有效深度值
+
+            # 擷取該區域中有效的深度值
             valid_depths = depth_roi[~np.isnan(depth_roi)]
-            
-            # 获取所有有效颜色值
+
+            # 將顏色轉成一維陣列
             valid_colors = color_roi.reshape(-1, 3)
             valid_colors = valid_colors[~np.isnan(depth_roi.reshape(-1))]
-            
+
+            # 若此區域中有有效深度值
             if len(valid_depths) > 0:
-                # 计算中值
+                # 計算深度與顏色的中位數
                 median_depth = np.median(valid_depths)
                 median_color = np.median(valid_colors, axis=0).astype(np.uint8)
-                
-                # 填充到第一个通道
+
+                # 將結果填入最前層
                 depth_stack[y, x, 0] = median_depth
                 color_stack[y, x, 0] = median_color
-                
-                # 更新有效点掩码
+
+                # 更新該點為有效像素
                 valid_mask[y, x] = True
-        
+
     return depth_stack, color_stack
 
-# ---------- 顯示圖像視覺結果 ----------
-def frontmost_color_numpy(stack_depth, stack_color):
-    """
-    從顏色堆疊中提取最前端的 RGB 顏色，根據深度堆疊或預設規則。
-
-    參數:
-    - stack_color: shape = (h, w, c, 3)，每個 (y,x) 都是一個 c 長度的顏色堆疊 (RGB)
-    - stack_depth: None 或 shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
-
-    行為（向量化版）：
-    - 如果 stack_depth is None，直接回傳 stack_color[..., 0, :]；
-    - 否則把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
-    再用 idx 去從 stack_color 抽出對應的 RGB 值。
-    - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
-
-    回傳:
-    - front_color: shape = (h, w, 3)，每個 (y,x) 的最前端 RGB 顏色。
-    """
-    h, w = stack_color.shape[:2]
-
-    # case 1: 沒有深度資訊，直接取第一層顏色
-    if stack_depth is None:
-        return stack_color[..., 0, :].copy()  # (h, w, 3)
-
-    # 確認深度為浮點陣列
-    depth = stack_depth
-    if not np.issubdtype(depth.dtype, np.floating):
-        depth = depth.astype(np.float32)
-
-    # 將 np.nan 替換為極大值
-    depth = np.where(np.isnan(depth), np.finfo(np.float32).max, depth)
-
-    # 對 axis=2 計算 argmin，得到最小深度索引 (h, w)
-    idx = np.argmin(depth, axis=2)  # shape = (h, w)
-
-    # 使用 advanced indexing 提取對應顏色
-    yy, xx = np.indices((h, w))  # 座標網格
-    front_color = stack_color[yy, xx, idx]  # shape = (h, w, 3)
-
-    return front_color
-
-def frontmost_depth_numpy(stack_depth):
-    """
-    參數:
-    - stack_depth: shape = (h, w, c)，每個 (y,x) 都是一個 c 長度的深度堆疊 (float)，其中可能包含 np.nan。
-    
-    行為（向量化版）：
-    - 把所有 np.nan 視為極大值，對 axis=2 做 argmin，得到索引 idx (h, w)，
-        再用 idx 去從 stack_depth 抽出對應的深度值。
-    - 這樣：如果該 (y,x) 的深度全為 NaN，同樣會因為「所有深度＋極大值」下 argmin 結果 = 0 而取第 0 個元素。
-    """
+# ---------- Warping to image ----------
+def warping_to_img(stack_depth):
     h, w = stack_depth.shape[:2]
 
     # 確認深度為浮點陣列
@@ -455,17 +392,8 @@ def frontmost_depth_numpy(stack_depth):
     
     return front_depth
 
-def show_virtual_views_numpy(merged_stack_color, merge_stack_depth):
-    # 先算出每張「最前端顏色/深度」的圖
-    merged_img = frontmost_color_numpy(merged_stack_color, merge_stack_depth)
-    
-    print(merge_stack_depth[1010, 1484])
 
-    # merged_depth_img = frontmost_depth_numpy(merge_stack_depth)
-
-    return merged_img
-
-
+# ---------- 主函數 ----------
 if __name__ == "__main__":
     template = cv2.imread('image/bbox_left_left.jpg', cv2.IMREAD_GRAYSCALE)
     
@@ -489,20 +417,18 @@ if __name__ == "__main__":
     midcenter_z = 0
 
     # 平移圖像
-    left_color_shifted = shift_image_horizontal(left_color, -shift)
-    right_color_shifted = shift_image_horizontal(right_color, shift)
-    left_depth_shifted = shift_image_horizontal(left_depth, -shift)
-    right_depth_shifted = shift_image_horizontal(right_depth, shift)
+    left_color_shifted = shift_image_background(left_color, -shift)
+    right_color_shifted = shift_image_background(right_color, shift)
+    left_depth_shifted = shift_image_background(left_depth, -shift)
+    right_depth_shifted = shift_image_background(right_depth, shift)
     
     # warp 成深度圖
-    
-    fast_left_stack_depth, fast_left_stack_color = forward_warp_to_stack_numpy(left_depth_shifted, left_color_shifted)
-    fast_right_stack_depth, fast_right_stack_color = forward_warp_to_stack_numpy(right_depth_shifted, right_color_shifted)
+    fast_left_stack_depth, fast_left_stack_color = warping(left_depth_shifted, left_color_shifted)
+    fast_right_stack_depth, fast_right_stack_color = warping(right_depth_shifted, right_color_shifted)
 
     # 平移深度圖
-    
-    fast_left_shifted_depth, fast_left_shifted_color = shift_points_in_stack2(fast_left_stack_depth, fast_left_stack_color, midcenter_x, midcenter_z, threshold=0.5, constant=-1)
-    fast_right_shifted_depth, fast_right_shifted_color = shift_points_in_stack2(fast_right_stack_depth, fast_right_stack_color, midcenter_x, midcenter_z, threshold=0.5, constant=1)
+    fast_left_shifted_depth, fast_left_shifted_color = shift_image_object(fast_left_stack_depth, fast_left_stack_color, midcenter_x, midcenter_z, threshold=0.5, constant=-1)
+    fast_right_shifted_depth, fast_right_shifted_color = shift_image_object(fast_right_stack_depth, fast_right_stack_color, midcenter_x, midcenter_z, threshold=0.5, constant=1)
 
     # 合併深度圖
 
@@ -510,9 +436,11 @@ if __name__ == "__main__":
 
     # 補洞
 
-    mid_merged_depth_stack, mid_merged_color_stack = inpaint_stack_median_numpy(fast_merged_depth_stack1, fast_merged_color_stack1)
+    mid_merged_depth_stack, mid_merged_color_stack = inpainting(fast_merged_depth_stack1, fast_merged_color_stack1)
 
-    # show_virtual_views_numpy(fast_left_stack_color, fast_right_stack_color, fast_merged_color_stack, fast_left_stack_depth, fast_right_stack_depth, fast_merged_depth_stack)
+    # 顯示圖片
+    # show_img = warping_to_img(mid_merged_depth_stack, mid_merged_color_stack)
+    # plt.imshow(show_img)
     
     gif = []
     # 第二次偏移
@@ -522,11 +450,11 @@ if __name__ == "__main__":
         shift_time = int(2 * shift * ((t+20)/40))
         print(shift_time)
         
-        fast_merged_depth_stack, fast_merged_color_stack = shift_points_in_stack2(mid_merged_depth_stack, mid_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant= 1,time = times)
+        fast_merged_depth_stack, fast_merged_color_stack = shift_image_object(mid_merged_depth_stack, mid_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant= 1,time = times)
 
-        fast_merged_depth_stack, fast_merged_color_stack = inpaint_stack_median_numpy(fast_merged_depth_stack, fast_merged_color_stack)
+        fast_merged_depth_stack, fast_merged_color_stack = inpainting(fast_merged_depth_stack, fast_merged_color_stack)
             
-        merged_img = frontmost_color_numpy(fast_merged_depth_stack, fast_merged_color_stack)
+        merged_img = warping_to_img(fast_merged_depth_stack, fast_merged_color_stack)
 
         # print(len(merged_img),len(merged_img[0]))
         out = merged_img[: ,shift_time:int(shift_time+template.shape[1]), :]
