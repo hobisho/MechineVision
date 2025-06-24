@@ -1,39 +1,68 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import griddata
 
-path = "./final/image/2image/tv"
-imgL = cv2.imread(f"{path}_left.jpg", cv2.IMREAD_GRAYSCALE)
-imgR = cv2.imread(f"{path}_right.jpg", cv2.IMREAD_GRAYSCALE)
+# 讀取圖片
+image = cv2.imread('a.jpg')
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-if imgL is None or imgR is None:
-    print("影像讀取失敗，請確認檔名與路徑")
-    exit()
+# 模糊 + 邊緣偵測
+blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+edges = cv2.Canny(blurred, 50, 200)
+edges = cv2.dilate(edges, None, iterations=15)
+edges = cv2.erode(edges, None, iterations=15)
 
-# 建立StereoBM物件
-numDisparities = 16*20  # 必須是16的倍數，設定視差範圍
-blockSize = 15         # 區塊大小，調整影響結果平滑度與細節
+# 創建一個與 gray 相同大小的遮罩，初始全為 0
+mask = np.zeros_like(gray)
 
-stereo = cv2.StereoBM_create(numDisparities=numDisparities, blockSize=blockSize)
+# 將 edges 中值為 255 的地方設為 255
+mask[edges == 255] = 255
 
-# 計算視差圖（16位元固定點，需除以16）
-disparity = stereo.compute(imgL, imgR).astype(np.float32) / 16.0
+# 對 gray 進行中值濾波
+median_filtered = cv2.medianBlur(gray, 5)  # 使用 5x5 核心，可以根據需要調整大小
+# median_filtered = cv2.medianBlur(median_filtered, 5)
+# median_filtered = cv2.medianBlur(median_filtered, 5)
 
-# 將視差值限制範圍（避免負值影響）
-disparity[disparity < 0] = 0
+# 僅在 edges=255 的地方使用中值濾波結果
+gray_filtered = gray.copy()
+gray_filtered[mask == 255] = median_filtered[mask == 255]
 
-# 正規化視差到0~255
-disparity_norm = cv2.normalize(disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-disparity_norm = np.uint8(disparity_norm)
+edgesa = cv2.Canny(gray_filtered, 50, 200)
+edgesa = cv2.dilate(edgesa, None, iterations=3)
 
-# 顯示視差圖
-cv2.imshow('Disparity Map (0~255)', disparity_norm)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+gray_filtereda = gray.copy()
+for i in range(gray.shape[0]):
+    for j in range(gray.shape[1]):
+        if edgesa[i, j] == 255:
+            gray_filtereda[i, j] = 0
+            
 
-# 或用matplotlib顯示
-plt.imshow(disparity_norm, cmap='gray')
-plt.title('Disparity Map (0~255)')
+
+# 找出輪廓（只找外層）
+# contours, _ = cv2.findContours(gray_filtereda, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+# # 複製一張原圖用來描邊
+# contour_img = image.copy()
+
+# 畫出輪廓（真實形狀）
+# cv2.drawContours(contour_img, contours, -1, (0, 255, 0), 2)  # 綠色線條
+
+_, binary = cv2.threshold(edgesa, 128, 255, cv2.THRESH_BINARY_INV)
+
+num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+
+mask = np.zeros(binary.shape, dtype=np.uint8)
+for i in range(1, num_labels):  
+    area = stats[i, cv2.CC_STAT_AREA]
+    if area >= 5000:
+        mask[labels == i] = 255
+        
+contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+filled_mask = np.zeros_like(mask)
+cv2.drawContours(filled_mask, contours, -1, 255, thickness=cv2.FILLED)
+
+# 顯示過濾後的灰度圖（可選）
+plt.imshow(cv2.cvtColor(filled_mask, cv2.COLOR_BGR2RGB), cmap='gray')
+plt.title('Median Filtered Gray (at edges)')
 plt.axis('off')
 plt.show()

@@ -483,7 +483,7 @@ if __name__ == "__main__":
     right_depth, right_color = load_depth_and_color(depth_right, f"image/bbox_right_right.jpg")
 
     # 計算深度圖shift
-    (max_group_mean, max_group_max, min_group_mean,avg_dx) = analyze_displacement(left_color, right_color)  # 假設 ImgShift 函數已經定義並返回位移量
+    (max_group_mean, max_group_max, min_group_mean,avg_dx) = analyze_displacement(left_color, right_color)  
     shift = int(min_group_mean / 2)
     midcenter_x = int(max_group_max - min_group_mean) / 2.3 #int(abs(center_left_x - center_right_x) / 2)
     midcenter_z = 0
@@ -543,6 +543,6 @@ if __name__ == "__main__":
     "rsynced_square.gif",
     save_all=True,
     append_images=gif[1:],
-    duration=100,  # 每幀 50 毫秒，控制同步播放速度
+    duration=100, 
     loop=0
 )
