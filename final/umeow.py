@@ -377,20 +377,21 @@ def inpainting(depth_stack, color_stack, kernel_size=3, max_iter=10):
     return depth_stack, color_stack
 
 # ---------- Warping to image ----------
-def warping_to_img(stack_depth):
-    h, w = stack_depth.shape[:2]
+def warping_to_img(stack_color, stack_depth=None):
+    h, w = stack_color.shape[:2]
 
-    # 確認深度為浮點陣列
+    if stack_depth is None:
+        return stack_color[..., 0, :].copy()
+
     depth = stack_depth
     if not np.issubdtype(depth.dtype, np.floating):
         depth = depth.astype(np.float32)
 
-    # 用 advanced-indexing 一次抽出最前端的深度 (h, w)
     yy, xx = np.indices((h, w))
     
-    front_depth = depth[yy, xx, 0]  # shape = (h, w)
+    front_color = stack_color[yy, xx, 0]
     
-    return front_depth
+    return front_color
 
 
 # ---------- 主函數 ----------
@@ -438,10 +439,16 @@ if __name__ == "__main__":
 
     mid_merged_depth_stack, mid_merged_color_stack = inpainting(fast_merged_depth_stack1, fast_merged_color_stack1)
 
-    # 顯示圖片
-    # show_img = warping_to_img(mid_merged_depth_stack, mid_merged_color_stack)
+    # 顯示中央圖片
+    # times = 0.5  #(-1~1)中央向左右移動的比例
+    # fast_merged_depth_stack, fast_merged_color_stack = shift_image_object(mid_merged_depth_stack, mid_merged_color_stack, midcenter_x, midcenter_z,threshold=0.5, constant= 1,time = times)
+    # fast_merged_depth_stack, fast_merged_color_stack = inpainting(fast_merged_depth_stack, fast_merged_color_stack)
+    # show_img = warping_to_img(fast_merged_color_stack, fast_merged_depth_stack)
     # plt.imshow(show_img)
+    # plt.show()
     
+
+    # 製作gif
     gif = []
     # 第二次偏移
     for t in range (-20,21):
